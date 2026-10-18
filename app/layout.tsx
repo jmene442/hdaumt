@@ -5,6 +5,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ChordTooltipProvider } from "@/components/ChordTooltip";
 import DatadogBrowserLogs from "@/components/DatadogBrowserLogs";
+import Script from "next/script";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,6 +52,28 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="min-h-full flex flex-col">
+        <Script
+          id="dd-rum-sync"
+          src="https://www.datadoghq-browser-agent.com/us1/v6/datadog-rum.js"
+          type="text/javascript"
+          strategy="beforeInteractive"
+        />
+        <Script id="datadog-rum">{`
+          window.DD_RUM && window.DD_RUM.init({
+            applicationId: '${process.env.NEXT_PUBLIC_DD_RUM_APPLICATION_ID || ""}',
+            clientToken: '${process.env.NEXT_PUBLIC_DD_RUM_CLIENT_TOKEN || ""}',
+            site: '${process.env.NEXT_PUBLIC_DD_SITE || "datadoghq.com"}',
+            service: '${process.env.NEXT_PUBLIC_DD_SERVICE || "hdaumt"}',
+            env: '${process.env.NEXT_PUBLIC_DD_ENV || ""}',
+            version: '${process.env.NEXT_PUBLIC_DD_VERSION || ""}',
+            sessionSampleRate: 100,
+            sessionReplaySampleRate: 20,
+            trackUserInteractions: true,
+            trackResources: true,
+            trackLongTasks: true,
+            defaultPrivacyLevel: 'mask-user-input',
+          });
+        `}</Script>
         <DatadogBrowserLogs />
         <ChordTooltipProvider>{children}</ChordTooltipProvider>
       </body>

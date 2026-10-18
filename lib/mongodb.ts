@@ -8,6 +8,25 @@ declare global {
 }
 
 /**
+ * Connects with a short per-attempt timeout and a couple of retries before
+ * giving up. Atlas's free M0 tier occasionally takes the full default 30s
+ * to answer a cold connection from Vercel; because `clientPromise` below is
+ * a single promise reused across requests on the same warm Fluid Compute
+ * instance, one timed-out attempt would otherwise permanently poison every
+ * later request on that instance (a rejected promise never un-rejects).
+ * Retrying here, before the promise settles, means a single slow/flaky
+ * attempt doesn't take the whole warm instance down with it.
+ */
+async function connectWithRetry(uri: string, attemptsLeft = 3): Promise<MongoClient> {
+  try {
+    return await new MongoClient(uri, { serverSelectionTimeoutMS: 5000 }).connect();
+  } catch (err) {
+    if (attemptsLeft <= 1) throw err;
+    return connectWithRetry(uri, attemptsLeft - 1);
+  }
+}
+
+/**
  * Builds the connection promise. Missing MONGODB_URI becomes a rejected
  * promise (not a thrown error) so importing this module never crashes
  * Next.js's build-time route collection — the error only surfaces when
@@ -16,7 +35,7 @@ declare global {
 function createClientPromise(): Promise<MongoClient> {
   const uri = process.env.MONGODB_URI;
   const promise = uri
-    ? new MongoClient(uri).connect()
+    ? connectWithRetry(uri)
     : Promise.reject(new Error("MONGODB_URI is not set — add it to .env.local"));
   promise.catch(() => {}); // avoids a Node "unhandled rejection" warning if this copy is never awaited
   return promise;
