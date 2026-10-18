@@ -22,15 +22,14 @@ Continuing from `progress-18-10-2.md`, same day. A plain-language log of what's 
 - No new secrets needed — it reuses the existing `DATADOG_API_KEY` already set both locally
   and in Vercel.
 
+- **Confirmed working in production**: triggered a real "suggest chart content" request on
+  the live site and the trace showed up in Datadog's LLM Observability dashboard. So despite
+  dd-trace's diagnostic warning (it couldn't fully initialize the way it expects on Vercel,
+  since it loads after Next.js itself starts), the manual Anthropic-call instrumentation
+  works anyway — that warning only affected the *automatic* tracing of other libraries
+  (Next.js routing, MongoDB), which this change never relied on.
+
 ## What's still open
 
-- **Not yet confirmed whether traces actually reach Datadog.** Even with the fixes above,
-  Datadog's own diagnostics still warn that it couldn't fully initialize the way it normally
-  expects on a platform like Vercel (it loaded after Next.js itself started, rather than
-  before). That specific warning is about *automatic* tracing of other libraries (Next.js's
-  own routing, MongoDB) that this change never asked for — the manual Anthropic-call
-  instrumentation doesn't depend on it — but this hasn't been proven with a real request yet.
-  **Next step: trigger a real "suggest chart content" request and check whether it shows up
-  in Datadog's LLM Observability dashboard.**
 - Same other open items from earlier today: `NEXT_PUBLIC_DD_VERSION`/RUM/browser-log delivery
   confirmation, no dashboard-page user identity on logs, no DB backups, no MIDI/audio export.
