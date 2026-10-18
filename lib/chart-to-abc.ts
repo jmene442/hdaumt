@@ -2,8 +2,13 @@
 // notation string that abcjs can render. This is the one place the app
 // decides what a chord "looks like" on the staff: each chord is voiced and
 // held for its full duration, tied across bar lines when it continues, per
-// CLAUDE.md's chart-layer-only v1 scope. Only components/AbcViewer.tsx and
-// the song editor call this.
+// CLAUDE.md's chart-layer-only v1 scope. Also emits a plain chord-symbol
+// annotation (ABC's unprefixed `"Symbol"` token — a standard lead-sheet
+// chord symbol above the note) for every chord, and returns `chordRefs`: an
+// ordered list mapping each emitted annotation back to its
+// section/bar/chord id, so AbcViewer can attach hover explanations to the
+// rendered symbols. Only components/AbcViewer.tsx and the song editor call
+// chartToAbc().
 import { parseChordSymbol, semitoneToAbcPitch } from "./chords";
 import type { Song } from "./types";
 
@@ -15,9 +20,24 @@ import type { Song } from "./types";
  */
 const EIGHTHS_PER_BEAT = 2;
 
+export interface ChordRef {
+  sectionId: string;
+  barId: string;
+  chordId: string;
+  symbol: string;
+}
+
+interface FlatChord {
+  id: string;
+  beat: number;
+  symbol: string;
+}
+
 interface FlatBar {
+  sectionId: string;
+  barId: string;
   beatsPerBar: number;
-  chords: { beat: number; symbol: string }[];
+  chords: FlatChord[];
   sectionLabel?: string;
 }
 
@@ -39,10 +59,12 @@ function flattenBars(song: Pick<Song, "sections" | "defaultTimeSignature">): Fla
     const sortedBars = [...section.bars].sort((a, b) => a.order - b.order);
     sortedBars.forEach((bar, index) => {
       flat.push({
+        sectionId: section.id,
+        barId: bar.id,
         beatsPerBar: timeSigBeats(bar.timeSignature ?? song.defaultTimeSignature),
         chords: [...bar.chords]
           .sort((a, b) => a.beat - b.beat)
-          .map((c) => ({ beat: c.beat, symbol: c.symbol })),
+          .map((c) => ({ id: c.id, beat: c.beat, symbol: c.symbol })),
         sectionLabel: index === 0 ? section.name : undefined,
       });
     });
@@ -55,6 +77,8 @@ interface Segment {
   durationEighths: number;
   /** Chord tones as semitone offsets from middle C, or null for a rest (used before the first chord). */
   semitones: number[] | null;
+  /** The originating chord, for rest-free segments only — used to emit the chord-symbol annotation + chordRefs entry. */
+  source: { sectionId: string; barId: string; chordId: string; symbol: string } | null;
 }
 
 /**
@@ -72,7 +96,11 @@ function buildTimeline(flatBars: FlatBar[]): { segments: Segment[]; barBoundarie
   }
   const total = cursor;
 
-  const events: { absoluteEighths: number; semitones: number[] }[] = [];
+  const events: {
+    absoluteEighths: number;
+    semitones: number[];
+    source: { sectionId: string; barId: string; chordId: string; symbol: string };
+  }[] = [];
   flatBars.forEach((bar, barIndex) => {
     const barStart = barBoundaries[barIndex];
     for (const chord of bar.chords) {
@@ -80,6 +108,7 @@ function buildTimeline(flatBars: FlatBar[]): { segments: Segment[]; barBoundarie
       events.push({
         absoluteEighths: Math.round(barStart + (chord.beat - 1) * EIGHTHS_PER_BEAT),
         semitones,
+        source: { sectionId: bar.sectionId, barId: bar.barId, chordId: chord.id, symbol: chord.symbol },
       });
     }
   });
@@ -91,11 +120,11 @@ function buildTimeline(flatBars: FlatBar[]): { segments: Segment[]; barBoundarie
 
   const segments: Segment[] = [];
   if (deduped.length === 0) {
-    segments.push({ startEighths: 0, durationEighths: total, semitones: null });
+    segments.push({ startEighths: 0, durationEighths: total, semitones: null, source: null });
     return { segments, barBoundaries };
   }
   if (deduped[0].absoluteEighths > 0) {
-    segments.push({ startEighths: 0, durationEighths: deduped[0].absoluteEighths, semitones: null });
+    segments.push({ startEighths: 0, durationEighths: deduped[0].absoluteEighths, semitones: null, source: null });
   }
   deduped.forEach((event, i) => {
     const end = i + 1 < deduped.length ? deduped[i + 1].absoluteEighths : total;
@@ -103,6 +132,7 @@ function buildTimeline(flatBars: FlatBar[]): { segments: Segment[]; barBoundarie
       startEighths: event.absoluteEighths,
       durationEighths: end - event.absoluteEighths,
       semitones: event.semitones,
+      source: event.source,
     });
   });
   return { segments: segments.filter((s) => s.durationEighths > 0), barBoundaries };
@@ -121,13 +151,24 @@ function segmentToAbcToken(semitones: number[] | null, units: number): string {
   return `[${semitones.map(semitoneToAbcPitch).join("")}]${length}`;
 }
 
+/** Escapes double quotes so a chord symbol can never break out of an ABC `"..."` annotation token. */
+function escapeAbcText(text: string): string {
+  return text.replace(/"/g, "");
+}
+
 /**
  * Walks the timeline bar by bar, clipping each segment to what fits before
  * the next bar line and adding a tie ("-") whenever a chord's sustain
- * continues into the following bar. Produces one ABC line per bar.
+ * continues into the following bar. Produces one ABC line per bar, plus the
+ * ordered chordRefs list (one entry per chord-symbol annotation emitted).
  */
-function renderBody(flatBars: FlatBar[], segments: Segment[], barBoundaries: number[]): string {
+function renderBody(
+  flatBars: FlatBar[],
+  segments: Segment[],
+  barBoundaries: number[],
+): { body: string; chordRefs: ChordRef[] } {
   const lines: string[] = [];
+  const chordRefs: ChordRef[] = [];
   let segIndex = 0;
 
   for (let barIndex = 0; barIndex < flatBars.length; barIndex++) {
@@ -144,9 +185,17 @@ function renderBody(flatBars: FlatBar[], segments: Segment[], barBoundaries: num
       const chunkEnd = Math.min(segEnd, barEnd);
       const chunkUnits = chunkEnd - pos;
       const continuesPastBar = segEnd > barEnd;
+      const isSegmentStart = pos === seg.startEighths;
 
-      const label = firstTokenInBar && bar.sectionLabel ? `"^${bar.sectionLabel}"` : "";
-      barTokens.push(label + segmentToAbcToken(seg.semitones, chunkUnits) + (continuesPastBar ? "-" : ""));
+      const sectionLabel = firstTokenInBar && bar.sectionLabel ? `"^${escapeAbcText(bar.sectionLabel)}"` : "";
+      const chordSymbolLabel = isSegmentStart && seg.source ? `"${escapeAbcText(seg.source.symbol)}"` : "";
+      if (isSegmentStart && seg.source) {
+        chordRefs.push({ ...seg.source });
+      }
+
+      barTokens.push(
+        sectionLabel + chordSymbolLabel + segmentToAbcToken(seg.semitones, chunkUnits) + (continuesPastBar ? "-" : ""),
+      );
       firstTokenInBar = false;
 
       pos = chunkEnd;
@@ -160,17 +209,25 @@ function renderBody(flatBars: FlatBar[], segments: Segment[], barBoundaries: num
     barTokens.push("|");
     lines.push(barTokens.join(" "));
   }
-  return lines.join("\n");
+  return { body: lines.join("\n"), chordRefs };
 }
 
-/** Builds the full ABC tune (header + body) for a song. Called by AbcViewer whenever chart data changes. */
-export function chartToAbc(song: Pick<Song, "title" | "key" | "defaultTimeSignature" | "sections">): string {
+export interface ChartToAbcResult {
+  abc: string;
+  /** One entry per rendered chord-symbol annotation, in the order abcjs will draw them. */
+  chordRefs: ChordRef[];
+}
+
+/** Builds the full ABC tune (header + body) for a song, plus the chordRefs AbcViewer needs for hover. */
+export function chartToAbc(song: Pick<Song, "title" | "key" | "defaultTimeSignature" | "sections">): ChartToAbcResult {
   const flatBars = flattenBars(song);
   const effectiveBars: FlatBar[] =
-    flatBars.length > 0 ? flatBars : [{ beatsPerBar: timeSigBeats(song.defaultTimeSignature), chords: [] }];
+    flatBars.length > 0
+      ? flatBars
+      : [{ sectionId: "", barId: "", beatsPerBar: timeSigBeats(song.defaultTimeSignature), chords: [] }];
 
   const { segments, barBoundaries } = buildTimeline(effectiveBars);
-  const body = renderBody(effectiveBars, segments, barBoundaries);
+  const { body, chordRefs } = renderBody(effectiveBars, segments, barBoundaries);
 
   const header = [
     "X:1",
@@ -180,5 +237,5 @@ export function chartToAbc(song: Pick<Song, "title" | "key" | "defaultTimeSignat
     `K:${song.key?.trim() || "C"} clef=treble`,
   ].join("\n");
 
-  return `${header}\n${body}\n`;
+  return { abc: `${header}\n${body}\n`, chordRefs };
 }

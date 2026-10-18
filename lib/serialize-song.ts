@@ -9,6 +9,7 @@ export function serializeSong(doc: WithId<Document>): Song {
     _id: doc._id.toString(),
     userId: doc.userId,
     title: doc.title ?? null,
+    description: doc.description ?? null,
     key: doc.key ?? null,
     defaultTimeSignature: doc.defaultTimeSignature ?? "4/4",
     sections: doc.sections ?? [],

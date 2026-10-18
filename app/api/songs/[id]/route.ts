@@ -6,6 +6,7 @@ import { ObjectId } from "mongodb";
 import { auth } from "@/auth";
 import { getSongsCollection } from "@/lib/mongodb";
 import { serializeSong } from "@/lib/serialize-song";
+import { withLogging } from "@/lib/datadog";
 import type { SongInput } from "@/lib/types";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -17,7 +18,7 @@ async function findOwnedSong(userId: string, id: string) {
   return songs.findOne({ _id: new ObjectId(id), userId });
 }
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export const GET = withLogging("songs.get", async function GET(_request: Request, { params }: RouteParams) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -26,10 +27,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
   const doc = await findOwnedSong(session.user.id, id);
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(serializeSong(doc));
-}
+});
 
-/** Replaces a song's editable fields (title/key/time signature/chart) with what the editor sent. */
-export async function PATCH(request: Request, { params }: RouteParams) {
+/** Replaces a song's editable fields (title/description/key/time signature/chart) with what the editor sent. */
+export const PATCH = withLogging("songs.update", async function PATCH(request: Request, { params }: RouteParams) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -44,6 +45,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     {
       $set: {
         ...(body.title !== undefined ? { title: body.title } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
         ...(body.key !== undefined ? { key: body.key } : {}),
         ...(body.defaultTimeSignature !== undefined ? { defaultTimeSignature: body.defaultTimeSignature } : {}),
         ...(body.sections !== undefined ? { sections: body.sections } : {}),
@@ -55,9 +57,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
   if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(serializeSong(result));
-}
+});
 
-export async function DELETE(_request: Request, { params }: RouteParams) {
+export const DELETE = withLogging("songs.delete", async function DELETE(_request: Request, { params }: RouteParams) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -69,4 +71,4 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   const result = await songs.deleteOne({ _id: new ObjectId(id), userId: session.user.id });
   if (result.deletedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return new NextResponse(null, { status: 204 });
-}
+});

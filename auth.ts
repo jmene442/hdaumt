@@ -6,6 +6,7 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import clientPromise from "@/lib/mongodb";
+import { logEvent } from "@/lib/datadog";
 
 /** This is an invite-only app — ALLOWED_EMAILS is the full allowlist, not a starter set. */
 function isAllowedEmail(email: string | null | undefined): boolean {
@@ -36,7 +37,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // keeps anyone off the allowlist from ever getting a DB user created for
     // them at all — Auth.js redirects them to /login?error=AccessDenied.
     signIn({ user }) {
-      return isAllowedEmail(user.email);
+      const allowed = isAllowedEmail(user.email);
+      // Outside any API route's withLogging() batch, so this ships immediately —
+      // still useful given the allowlist gate is the app's main access control.
+      logEvent(allowed ? "auth.signIn.allowed" : "auth.signIn.rejected", { email: user.email }, allowed ? "info" : "warn");
+      return allowed;
     },
     // The database session strategy gives us the persisted `user` record but
     // doesn't copy its id onto `session.user` by default — every API route

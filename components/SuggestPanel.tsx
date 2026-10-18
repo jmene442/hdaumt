@@ -5,6 +5,7 @@
 // updated song back to SongEditor via onSuggested, which replaces local state.
 import { useState } from "react";
 import type { Song } from "@/lib/types";
+import Button from "./ui/Button";
 
 export default function SuggestPanel({
   songId,
@@ -44,7 +45,7 @@ export default function SuggestPanel({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded-lg border border-accent-soft bg-card p-4">
       <label htmlFor="suggest-prompt" className="text-sm font-medium">
         Ask the AI for a section
       </label>
@@ -53,15 +54,11 @@ export default function SuggestPanel({
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         placeholder="e.g. an 8-bar chorus in G major with a lift at the end"
-        className="min-h-20 rounded border border-zinc-300 bg-transparent p-2 text-sm dark:border-zinc-700"
+        className="min-h-20 rounded border border-accent-soft bg-transparent p-2 text-sm"
       />
-      <button
-        type="submit"
-        disabled={loading || !prompt.trim()}
-        className="self-start rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-      >
+      <Button type="submit" disabled={loading || !prompt.trim()} className="self-start">
         {loading ? "Thinking…" : "Suggest"}
-      </button>
+      </Button>
       {error && <p className="text-sm text-red-600">{error}</p>}
     </form>
   );

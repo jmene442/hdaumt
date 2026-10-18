@@ -1,12 +1,15 @@
 "use client";
 
 // Dashboard "start a new song" entry point: takes a freeform prompt, creates
-// a new song, asks the AI to populate its first section(s) from the prompt,
+// a new song (title derived from the prompt, description set to the prompt
+// itself), asks the AI to populate its first section(s) from the prompt,
 // then navigates straight to the editor. Replaces the old empty "New Song"
 // button — the AI suggestion step now happens up front instead of requiring
 // a second trip through SuggestPanel on the editor page.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { deriveTitleFromPrompt } from "@/lib/title";
+import Button from "./ui/Button";
 
 export default function NewSongPrompt() {
   const router = useRouter();
@@ -23,7 +26,7 @@ export default function NewSongPrompt() {
       const createRes = await fetch("/api/songs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ title: deriveTitleFromPrompt(prompt), description: prompt }),
       });
       if (!createRes.ok) throw new Error("Could not create song");
       const song = await createRes.json();
@@ -46,7 +49,7 @@ export default function NewSongPrompt() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded-lg border border-accent-soft bg-card p-4">
       <label htmlFor="new-song-prompt" className="text-sm font-medium">
         Start a new song
       </label>
@@ -55,15 +58,11 @@ export default function NewSongPrompt() {
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         placeholder="e.g. a slow 12-bar blues in E with a turnaround"
-        className="min-h-20 rounded border border-zinc-300 bg-transparent p-2 text-sm dark:border-zinc-700"
+        className="min-h-20 rounded border border-accent-soft bg-transparent p-2 text-sm"
       />
-      <button
-        type="submit"
-        disabled={loading || !prompt.trim()}
-        className="self-start rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-      >
+      <Button type="submit" disabled={loading || !prompt.trim()} className="self-start">
         {loading ? "Creating…" : "Create song"}
-      </button>
+      </Button>
       {error && <p className="text-sm text-red-600">{error}</p>}
     </form>
   );

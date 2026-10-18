@@ -11,6 +11,7 @@ import { getSongsCollection } from "@/lib/mongodb";
 import { serializeSong } from "@/lib/serialize-song";
 import NewSongPrompt from "@/components/NewSongPrompt";
 import SignOutButton from "@/components/SignOutButton";
+import ThemeToggle from "@/components/ThemeToggle";
 
 /** Counts every bar across a song's sections, for the table's "bars" column. */
 function totalBars(song: { sections: { bars: unknown[] }[] }) {
@@ -29,17 +30,20 @@ export default async function Home() {
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Your songs</h1>
-        <SignOutButton />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <SignOutButton />
+        </div>
       </div>
 
       <NewSongPrompt />
 
       {songs.length === 0 ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">No songs yet — describe one above to get started.</p>
+        <p className="text-sm text-foreground/70">No songs yet — describe one above to get started.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <div className="overflow-x-auto rounded-lg border border-accent-soft">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+            <thead className="border-b border-accent-soft bg-accent-soft/60 text-xs uppercase text-foreground/70">
               <tr>
                 <th className="px-3 py-2 font-medium">Title</th>
                 <th className="px-3 py-2 font-medium">Key</th>
@@ -51,17 +55,17 @@ export default async function Home() {
             </thead>
             <tbody>
               {songs.map((song) => (
-                <tr key={song._id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-900 dark:hover:bg-zinc-900">
+                <tr key={song._id} className="border-b border-accent-soft/60 last:border-0 odd:bg-card even:bg-accent-soft/20 hover:bg-mint/30">
                   <td className="px-3 py-2">
-                    <Link href={`/songs/${song._id}`} className="font-medium underline">
+                    <Link href={`/songs/${song._id}`} className="font-medium text-accent underline">
                       {song.title || "Untitled"}
                     </Link>
                   </td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{song.key || "—"}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{song.defaultTimeSignature}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{song.sections.length}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{totalBars(song)}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
+                  <td className="px-3 py-2 text-foreground/70">{song.key || "—"}</td>
+                  <td className="px-3 py-2 text-foreground/70">{song.defaultTimeSignature}</td>
+                  <td className="px-3 py-2 text-foreground/70">{song.sections.length}</td>
+                  <td className="px-3 py-2 text-foreground/70">{totalBars(song)}</td>
+                  <td className="px-3 py-2 text-foreground/70">
                     {new Date(song.updatedAt).toLocaleDateString()}
                   </td>
                 </tr>

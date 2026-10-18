@@ -6,9 +6,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSongsCollection } from "@/lib/mongodb";
 import { serializeSong } from "@/lib/serialize-song";
+import { withLogging } from "@/lib/datadog";
 
 /** Returns every song owned by the current user, most recently updated first. */
-export async function GET() {
+export const GET = withLogging("songs.list", async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,10 +18,10 @@ export async function GET() {
   const songs = await getSongsCollection();
   const docs = await songs.find({ userId: session.user.id }).sort({ updatedAt: -1 }).toArray();
   return NextResponse.json(docs.map(serializeSong));
-}
+});
 
 /** Creates a new, mostly-empty song owned by the current user and returns it. */
-export async function POST(request: Request) {
+export const POST = withLogging("songs.create", async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
   const doc = {
     userId: session.user.id,
     title: typeof body.title === "string" ? body.title : null,
+    description: typeof body.description === "string" ? body.description : null,
     key: typeof body.key === "string" ? body.key : null,
     defaultTimeSignature: typeof body.defaultTimeSignature === "string" ? body.defaultTimeSignature : "4/4",
     sections: [
@@ -48,4 +50,4 @@ export async function POST(request: Request) {
   const songs = await getSongsCollection();
   const result = await songs.insertOne(doc);
   return NextResponse.json(serializeSong({ ...doc, _id: result.insertedId }), { status: 201 });
-}
+});

@@ -8,9 +8,13 @@ import { auth } from "@/auth";
 import { getSongsCollection } from "@/lib/mongodb";
 import { serializeSong } from "@/lib/serialize-song";
 import { suggestSections } from "@/lib/anthropic";
+import { withLogging } from "@/lib/datadog";
 import type { Bar, Chord, Section } from "@/lib/types";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withLogging("songs.suggest", async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -64,4 +68,4 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(serializeSong(result));
-}
+});

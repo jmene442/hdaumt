@@ -1,14 +1,20 @@
 "use client";
 
-// The main chart-editing UI: song metadata, a nested sections -> bars ->
-// chords editor, the live ABC preview, and the AI suggestion panel. Holds
-// its own copy of the song in state and PATCHes the whole thing to the API
-// on "Save" rather than autosaving every keystroke.
+// The main chart-editing UI: song metadata, a description blurb, a nested
+// sections -> bars -> chords editor, the live ABC preview (with hover
+// explanations on both the chord list below and the rendered chord symbols
+// above), and the AI suggestion panel. Holds its own copy of the song in
+// state and PATCHes the whole thing to the API on "Save" rather than
+// autosaving every keystroke.
 import { useMemo, useState } from "react";
 import type { Bar, Chord, Section, Song } from "@/lib/types";
 import { chartToAbc } from "@/lib/chart-to-abc";
+import { explainChord } from "@/lib/chord-theory";
 import AbcViewer from "./AbcViewer";
 import SuggestPanel from "./SuggestPanel";
+import ThemeToggle from "./ThemeToggle";
+import Button from "./ui/Button";
+import { useChordTooltip } from "./ChordTooltip";
 
 function newChord(): Chord {
   return { id: crypto.randomUUID(), symbol: "C", beat: 1 };
@@ -22,14 +28,36 @@ function newSection(order: number): Section {
   return { id: crypto.randomUUID(), name: `Section ${order + 1}`, order, bars: [] };
 }
 
+function totalBars(song: Pick<Song, "sections">) {
+  return song.sections.reduce((sum, section) => sum + section.bars.length, 0);
+}
+
 export default function SongEditor({ initialSong }: { initialSong: Song }) {
   const [song, setSong] = useState(initialSong);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const { show, hide } = useChordTooltip();
 
-  const abc = useMemo(() => chartToAbc(song), [song]);
+  const { abc, chordRefs } = useMemo(() => chartToAbc(song), [song]);
 
-  /** Persists the current title/key/time signature/chart to the API. */
+  /** Index into chordRefs for each chord id, so the editor-list popover can look up its neighbors. */
+  const chordIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    chordRefs.forEach((ref, i) => map.set(ref.chordId, i));
+    return map;
+  }, [chordRefs]);
+
+  function handleChordHover(e: React.MouseEvent<HTMLElement>, chord: Chord) {
+    const index = chordIndexById.get(chord.id);
+    const explanation = explainChord(chord.symbol, {
+      key: song.key,
+      prevSymbol: index !== undefined ? chordRefs[index - 1]?.symbol : undefined,
+      nextSymbol: index !== undefined ? chordRefs[index + 1]?.symbol : undefined,
+    });
+    show(explanation, e.currentTarget.getBoundingClientRect());
+  }
+
+  /** Persists the current title/description/key/time signature/chart to the API. */
   async function handleSave() {
     setSaving(true);
     setSaveError(null);
@@ -39,6 +67,7 @@ export default function SongEditor({ initialSong }: { initialSong: Song }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: song.title,
+          description: song.description,
           key: song.key,
           defaultTimeSignature: song.defaultTimeSignature,
           sections: song.sections,
@@ -126,7 +155,7 @@ export default function SongEditor({ initialSong }: { initialSong: Song }) {
           <input
             value={song.title ?? ""}
             onChange={(e) => setSong((s) => ({ ...s, title: e.target.value }))}
-            className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700"
+            className="rounded border border-accent-soft bg-transparent px-2 py-1"
             placeholder="Untitled"
           />
         </label>
@@ -135,7 +164,7 @@ export default function SongEditor({ initialSong }: { initialSong: Song }) {
           <input
             value={song.key ?? ""}
             onChange={(e) => setSong((s) => ({ ...s, key: e.target.value }))}
-            className="w-20 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700"
+            className="w-20 rounded border border-accent-soft bg-transparent px-2 py-1"
             placeholder="C"
           />
         </label>
@@ -144,57 +173,73 @@ export default function SongEditor({ initialSong }: { initialSong: Song }) {
           <input
             value={song.defaultTimeSignature}
             onChange={(e) => setSong((s) => ({ ...s, defaultTimeSignature: e.target.value }))}
-            className="w-20 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700"
+            className="w-20 rounded border border-accent-soft bg-transparent px-2 py-1"
             placeholder="4/4"
           />
         </label>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-        >
+        <Button onClick={handleSave} disabled={saving}>
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
+        <ThemeToggle />
         {saveError && <span className="text-sm text-red-600">{saveError}</span>}
       </div>
 
-      <AbcViewer abc={abc} />
+      <label className="flex flex-col gap-1 text-sm">
+        Description
+        <textarea
+          value={song.description ?? ""}
+          onChange={(e) => setSong((s) => ({ ...s, description: e.target.value }))}
+          placeholder="What this song is going for — tempo, feel, setup…"
+          className="min-h-16 rounded border border-accent-soft bg-transparent p-2 text-sm"
+        />
+      </label>
+      <p className="text-xs text-foreground/60">
+        Key: {song.key || "unset"} · {song.defaultTimeSignature} · {song.sections.length} section
+        {song.sections.length === 1 ? "" : "s"} · {totalBars(song)} bar{totalBars(song) === 1 ? "" : "s"}
+      </p>
+
+      <AbcViewer abc={abc} chordRefs={chordRefs} songKey={song.key} />
 
       <div className="flex flex-col gap-4">
         {song.sections.map((section) => (
-          <div key={section.id} className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+          <div key={section.id} className="rounded-lg border border-accent-soft bg-card p-4">
             <div className="mb-3 flex items-center gap-2">
               <input
                 value={section.name}
                 onChange={(e) => updateSection(section.id, { name: e.target.value })}
-                className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm font-medium dark:border-zinc-700"
+                className="rounded border border-accent-soft bg-transparent px-2 py-1 text-sm font-medium"
               />
-              <button onClick={() => addBar(section.id)} className="text-sm text-zinc-600 underline dark:text-zinc-400">
+              <Button variant="ghost-link" onClick={() => addBar(section.id)}>
                 + Bar
-              </button>
-              <button onClick={() => removeSection(section.id)} className="ml-auto text-sm text-red-600 underline">
+              </Button>
+              <Button variant="danger-link" className="ml-auto" onClick={() => removeSection(section.id)}>
                 Remove section
-              </button>
+              </Button>
             </div>
 
             <div className="flex flex-wrap gap-3">
               {section.bars.map((bar, barIndex) => (
-                <div key={bar.id} className="flex min-w-40 flex-col gap-2 rounded border border-zinc-200 p-2 dark:border-zinc-700">
-                  <div className="flex items-center justify-between text-xs text-zinc-500">
+                <div key={bar.id} className="flex min-w-40 flex-col gap-2 rounded border border-accent-soft p-2">
+                  <div className="flex items-center justify-between text-xs text-foreground/60">
                     <span>Bar {barIndex + 1}</span>
-                    <button onClick={() => removeBar(section.id, bar.id)} className="text-red-600 underline">
+                    <Button variant="danger-link" className="text-xs" onClick={() => removeBar(section.id, bar.id)}>
                       remove
-                    </button>
+                    </Button>
                   </div>
                   {bar.chords.map((chord) => (
-                    <div key={chord.id} className="flex items-center gap-1">
+                    <div
+                      key={chord.id}
+                      className="flex items-center gap-1"
+                      onMouseEnter={(e) => handleChordHover(e, chord)}
+                      onMouseLeave={hide}
+                    >
                       <input
                         value={chord.symbol}
                         onChange={(e) => updateChord(section.id, bar.id, chord.id, { symbol: e.target.value })}
-                        className="w-16 rounded border border-zinc-300 bg-transparent px-1 py-0.5 text-sm dark:border-zinc-700"
+                        className="w-16 cursor-help rounded border border-accent-soft bg-transparent px-1 py-0.5 text-sm"
                         placeholder="Cmaj7"
                       />
-                      <span className="text-xs text-zinc-500">beat</span>
+                      <span className="text-xs text-foreground/60">beat</span>
                       <input
                         type="number"
                         step="0.5"
@@ -203,30 +248,28 @@ export default function SongEditor({ initialSong }: { initialSong: Song }) {
                         onChange={(e) =>
                           updateChord(section.id, bar.id, chord.id, { beat: Number(e.target.value) })
                         }
-                        className="w-14 rounded border border-zinc-300 bg-transparent px-1 py-0.5 text-sm dark:border-zinc-700"
+                        className="w-14 rounded border border-accent-soft bg-transparent px-1 py-0.5 text-sm"
                       />
-                      <button
+                      <Button
+                        variant="danger-link"
+                        className="text-xs"
                         onClick={() => removeChord(section.id, bar.id, chord.id)}
-                        className="text-xs text-red-600"
                       >
                         ✕
-                      </button>
+                      </Button>
                     </div>
                   ))}
-                  <button
-                    onClick={() => addChord(section.id, bar.id)}
-                    className="text-xs text-zinc-600 underline dark:text-zinc-400"
-                  >
+                  <Button variant="ghost-link" className="text-xs" onClick={() => addChord(section.id, bar.id)}>
                     + chord
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
           </div>
         ))}
-        <button onClick={addSection} className="self-start text-sm text-zinc-600 underline dark:text-zinc-400">
+        <Button variant="ghost-link" className="self-start" onClick={addSection}>
           + Section
-        </button>
+        </Button>
       </div>
 
       <SuggestPanel songId={song._id} onSuggested={setSong} />

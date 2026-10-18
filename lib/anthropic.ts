@@ -7,6 +7,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { Section } from "./types";
+import { logEvent } from "./datadog";
 
 const client = new Anthropic();
 
@@ -41,28 +42,44 @@ export async function suggestSections(
   prompt: string,
   context: { key: string | null; defaultTimeSignature: string; existingSections: Section[] },
 ): Promise<ProposedSection[]> {
-  const response = await client.messages.parse({
-    model: "claude-opus-5",
-    max_tokens: 4096,
-    output_config: { effort: "medium", format: zodOutputFormat(ProposalSchema) },
-    system:
-      "You are a songwriting assistant that proposes chord progressions for the chart " +
-      "(harmonic outline) layer of a song. Only propose chords, bars, and section names — " +
-      "never melody notes or lyrics. Respect the song's key and time signature.",
-    messages: [
-      {
-        role: "user",
-        content:
-          `Song key: ${context.key ?? "unspecified"}\n` +
-          `Time signature: ${context.defaultTimeSignature}\n` +
-          `Existing sections: ${JSON.stringify(context.existingSections.map((s) => s.name))}\n\n` +
-          `Request: ${prompt}`,
-      },
-    ],
-  });
+  const model = "claude-opus-5";
+  const start = Date.now();
+  try {
+    const response = await client.messages.parse({
+      model,
+      max_tokens: 4096,
+      output_config: { effort: "medium", format: zodOutputFormat(ProposalSchema) },
+      system:
+        "You are a songwriting assistant that proposes chord progressions for the chart " +
+        "(harmonic outline) layer of a song. Only propose chords, bars, and section names — " +
+        "never melody notes or lyrics. Respect the song's key and time signature.",
+      messages: [
+        {
+          role: "user",
+          content:
+            `Song key: ${context.key ?? "unspecified"}\n` +
+            `Time signature: ${context.defaultTimeSignature}\n` +
+            `Existing sections: ${JSON.stringify(context.existingSections.map((s) => s.name))}\n\n` +
+            `Request: ${prompt}`,
+        },
+      ],
+    });
 
-  if (!response.parsed_output) {
-    throw new Error("Claude did not return a parseable chart proposal");
+    if (!response.parsed_output) {
+      throw new Error("Claude did not return a parseable chart proposal");
+    }
+    logEvent("anthropic.suggestSections", {
+      model,
+      durationMs: Date.now() - start,
+      sectionCount: response.parsed_output.sections.length,
+    });
+    return response.parsed_output.sections;
+  } catch (err) {
+    logEvent(
+      "anthropic.suggestSections.error",
+      { model, durationMs: Date.now() - start, error: err instanceof Error ? err.message : String(err) },
+      "error",
+    );
+    throw err;
   }
-  return response.parsed_output.sections;
 }

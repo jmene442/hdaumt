@@ -30,6 +30,8 @@ export interface Song {
   _id: string;
   userId: string;
   title: string | null;
+  /** Freeform summary shown above the sheet music — defaults to the creation prompt, user-editable after. */
+  description: string | null;
   key: string | null;
   defaultTimeSignature: string;
   sections: Section[];
@@ -38,4 +40,4 @@ export interface Song {
 }
 
 /** The subset of Song fields a client sends when creating/updating a song. */
-export type SongInput = Pick<Song, "title" | "key" | "defaultTimeSignature" | "sections">;
+export type SongInput = Pick<Song, "title" | "description" | "key" | "defaultTimeSignature" | "sections">;

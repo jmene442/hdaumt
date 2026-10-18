@@ -1,22 +1,50 @@
 @import "tailwindcss";
 
+/* Makes every `dark:` utility respond to a `.dark` class on <html> (set by
+   ThemeToggle/the init script in layout.tsx) instead of OS preference, so
+   the toggle actually overrides the system setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5f1fb;
+  --foreground: #2b2730;
+  --card: #ffffff;
+  --accent: #7c6fd1;
+  --accent-foreground: #ffffff;
+  --accent-soft: #e6e1f9;
+  --mint: #bfe8d9;
+  --peach: #f5c9a0;
+  /* Sheet music stays parchment-colored regardless of theme. */
+  --parchment: #fbf6ec;
+  --parchment-border: #d8c9a8;
+  --parchment-ink: #2b2416;
+}
+
+.dark {
+  --background: #1b1726;
+  --foreground: #ece7f5;
+  --card: #241f33;
+  --accent: #a89bf0;
+  --accent-foreground: #1b1726;
+  --accent-soft: #342c4a;
+  --mint: #3f6a5a;
+  --peach: #7a5436;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-mint: var(--mint);
+  --color-peach: var(--peach);
+  --color-parchment: var(--parchment);
+  --color-parchment-border: var(--parchment-border);
+  --color-parchment-ink: var(--parchment-ink);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {

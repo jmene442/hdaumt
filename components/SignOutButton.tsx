@@ -4,11 +4,12 @@
 // component (it triggers a browser redirect/fetch), unlike auth()/signIn's
 // server-side link form used elsewhere.
 import { signOut } from "next-auth/react";
+import Button from "./ui/Button";
 
 export default function SignOutButton() {
   return (
-    <button onClick={() => signOut()} className="text-sm text-zinc-600 underline dark:text-zinc-400">
+    <Button variant="dark" onClick={() => signOut()}>
       Sign out
-    </button>
+    </Button>
   );
 }

@@ -1,6 +1,8 @@
 // Turns a chord symbol like "Cmaj7" or "Bbm7" into a set of actual pitches,
 // so chart-to-abc.ts can notate real chord tones instead of just printing
-// the symbol as text. Only lib/chart-to-abc.ts depends on this module.
+// the symbol as text. Also exposes the root/quality split on its own
+// (parseChordRoot, describeChordQuality) for lib/chord-theory.ts's hover
+// explanations, so both modules parse symbols the same way.
 
 /** Semitone offset of each natural note name above C, used as the base before accidentals. */
 const NATURAL_SEMITONES: Record<string, number> = {
@@ -13,30 +15,74 @@ const NATURAL_SEMITONES: Record<string, number> = {
   B: 11,
 };
 
-/** Interval sets (semitones above the root) for every chord quality we recognize. */
-const QUALITY_INTERVALS: Array<{ pattern: RegExp; intervals: number[] }> = [
+/** Interval sets (semitones above the root) and a human label for every chord quality we recognize. */
+const QUALITY_INTERVALS: Array<{ pattern: RegExp; intervals: number[]; label: string }> = [
   // Longest/most-specific patterns first so e.g. "maj7" doesn't get matched by "maj" (major).
-  { pattern: /^(maj7|M7|Δ7?)$/, intervals: [0, 4, 7, 11] },
-  { pattern: /^(m7b5|m7-5|ø7?)$/, intervals: [0, 3, 6, 10] },
-  { pattern: /^(dim7|o7)$/, intervals: [0, 3, 6, 9] },
-  { pattern: /^(dim|o)$/, intervals: [0, 3, 6] },
-  { pattern: /^(m6|min6|-6)$/, intervals: [0, 3, 7, 9] },
-  { pattern: /^(m7|min7|-7)$/, intervals: [0, 3, 7, 10] },
-  { pattern: /^(m9|min9)$/, intervals: [0, 3, 7, 10, 14] },
-  { pattern: /^(m|min|-)$/, intervals: [0, 3, 7] },
-  { pattern: /^(maj9|M9)$/, intervals: [0, 4, 7, 11, 14] },
-  { pattern: /^(add9)$/, intervals: [0, 4, 7, 14] },
-  { pattern: /^(9)$/, intervals: [0, 4, 7, 10, 14] },
-  { pattern: /^(7)$/, intervals: [0, 4, 7, 10] },
-  { pattern: /^(6)$/, intervals: [0, 4, 7, 9] },
-  { pattern: /^(aug|\+)$/, intervals: [0, 4, 8] },
-  { pattern: /^(sus2)$/, intervals: [0, 2, 7] },
-  { pattern: /^(sus4|sus)$/, intervals: [0, 5, 7] },
-  { pattern: /^(maj|M|)$/, intervals: [0, 4, 7] },
+  { pattern: /^(maj7|M7|Δ7?)$/, intervals: [0, 4, 7, 11], label: "Major 7th" },
+  { pattern: /^(m7b5|m7-5|ø7?)$/, intervals: [0, 3, 6, 10], label: "Half-diminished 7th" },
+  { pattern: /^(dim7|o7)$/, intervals: [0, 3, 6, 9], label: "Diminished 7th" },
+  { pattern: /^(dim|o)$/, intervals: [0, 3, 6], label: "Diminished" },
+  { pattern: /^(m6|min6|-6)$/, intervals: [0, 3, 7, 9], label: "Minor 6th" },
+  { pattern: /^(m7|min7|-7)$/, intervals: [0, 3, 7, 10], label: "Minor 7th" },
+  { pattern: /^(m9|min9)$/, intervals: [0, 3, 7, 10, 14], label: "Minor 9th" },
+  { pattern: /^(m|min|-)$/, intervals: [0, 3, 7], label: "Minor" },
+  { pattern: /^(maj9|M9)$/, intervals: [0, 4, 7, 11, 14], label: "Major 9th" },
+  { pattern: /^(add9)$/, intervals: [0, 4, 7, 14], label: "Added 9th" },
+  { pattern: /^(9)$/, intervals: [0, 4, 7, 10, 14], label: "Dominant 9th" },
+  { pattern: /^(7)$/, intervals: [0, 4, 7, 10], label: "Dominant 7th" },
+  { pattern: /^(6)$/, intervals: [0, 4, 7, 9], label: "Major 6th" },
+  { pattern: /^(aug|\+)$/, intervals: [0, 4, 8], label: "Augmented" },
+  { pattern: /^(sus2)$/, intervals: [0, 2, 7], label: "Suspended 2nd" },
+  { pattern: /^(sus4|sus)$/, intervals: [0, 5, 7], label: "Suspended 4th" },
+  { pattern: /^(maj|M|)$/, intervals: [0, 4, 7], label: "Major" },
 ];
 
 /** Root + fifth only — used when a quality string doesn't match anything above. */
 const FALLBACK_INTERVALS = [0, 7];
+const FALLBACK_LABEL = "Power chord (unrecognized quality)";
+
+export interface ChordRoot {
+  letter: string;
+  accidental: "#" | "b" | null;
+  /** Everything after the root letter/accidental, e.g. "m7", "maj7", "" for plain major. */
+  quality: string;
+  /** Root pitch class, 0-11 (0 = C). */
+  rootPitchClass: number;
+}
+
+/** Splits a chord symbol into its root and quality text. Returns null for unparseable input. */
+export function parseChordRoot(symbol: string): ChordRoot | null {
+  const trimmed = symbol.trim().split("/")[0]; // drop "/bass" if present
+  const match = trimmed.match(/^([A-G])(#|b)?(.*)$/);
+  if (!match) return null;
+
+  const [, letter, accidental, qualityRaw] = match;
+  let rootSemitone = NATURAL_SEMITONES[letter];
+  if (accidental === "#") rootSemitone += 1;
+  if (accidental === "b") rootSemitone -= 1;
+  rootSemitone = ((rootSemitone % 12) + 12) % 12;
+
+  return {
+    letter,
+    accidental: accidental === "#" || accidental === "b" ? accidental : null,
+    quality: qualityRaw.trim(),
+    rootPitchClass: rootSemitone,
+  };
+}
+
+export interface ChordQuality {
+  intervals: number[];
+  label: string;
+  recognized: boolean;
+}
+
+/** Looks up a quality string (e.g. "m7", "maj9") against the known interval/label table. */
+export function describeChordQuality(quality: string): ChordQuality {
+  const found = QUALITY_INTERVALS.find((q) => q.pattern.test(quality));
+  return found
+    ? { intervals: found.intervals, label: found.label, recognized: true }
+    : { intervals: FALLBACK_INTERVALS, label: FALLBACK_LABEL, recognized: false };
+}
 
 export interface ParsedChord {
   /** Absolute semitone offsets from middle C (0 = middle C), one per chord tone, root first. */
@@ -52,26 +98,16 @@ export interface ParsedChord {
  * since the chart layer only has one voice (no separate bass part yet).
  */
 export function parseChordSymbol(symbol: string): ParsedChord {
-  const trimmed = symbol.trim().split("/")[0]; // drop "/bass" if present
-  const match = trimmed.match(/^([A-G])(#|b)?(.*)$/);
-  if (!match) {
+  const root = parseChordRoot(symbol);
+  if (!root) {
     // Completely unparseable input — anchor on middle C so rendering never throws.
     return { semitones: [0, 7], recognized: false };
   }
 
-  const [, letter, accidental, qualityRaw] = match;
-  let rootSemitone = NATURAL_SEMITONES[letter];
-  if (accidental === "#") rootSemitone += 1;
-  if (accidental === "b") rootSemitone -= 1;
-  rootSemitone = ((rootSemitone % 12) + 12) % 12;
-
-  const quality = qualityRaw.trim();
-  const found = QUALITY_INTERVALS.find((q) => q.pattern.test(quality));
-  const intervals = found ? found.intervals : FALLBACK_INTERVALS;
-
+  const { intervals, recognized } = describeChordQuality(root.quality);
   return {
-    semitones: intervals.map((i) => rootSemitone + i),
-    recognized: Boolean(found),
+    semitones: intervals.map((i) => root.rootPitchClass + i),
+    recognized,
   };
 }
 
