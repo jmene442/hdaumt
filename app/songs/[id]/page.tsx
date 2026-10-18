@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { getSongsCollection } from "@/lib/mongodb";
 import { serializeSong } from "@/lib/serialize-song";
 import SongEditor from "@/components/SongEditor";
+import DatadogBrowserLogs from "@/components/DatadogBrowserLogs";
 
 export default async function SongPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,5 +18,10 @@ export default async function SongPage({ params }: { params: Promise<{ id: strin
   const doc = await songs.findOne({ _id: new ObjectId(id), userId: session.user.id });
   if (!doc) notFound();
 
-  return <SongEditor initialSong={serializeSong(doc)} />;
+  return (
+    <>
+      <SongEditor initialSong={serializeSong(doc)} />
+      <DatadogBrowserLogs user={{ id: session.user.id, email: session.user.email }} />
+    </>
+  );
 }
